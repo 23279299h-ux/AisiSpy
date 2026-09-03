@@ -14,90 +14,111 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Theos + SDK + ldid
+      - name: Install tools (theos for logos.pl only + SDK + ldid)
         run: |
           export THEOS=~/theos
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
-          # 安装theos
-          git clone --recursive https://github.com/theos/theos.git $THEOS
+          # 安装theos（只用于logos.pl处理Logos语法）
+          git clone --depth 1 --recursive https://github.com/theos/theos.git $THEOS
 
-          # 用sparse checkout只下载需要的SDK（避免下载1.6GB全量SDK）
+          # 下载iOS SDK (sparse checkout只下16.5)
           git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
           cd /tmp/ios-sdks
-          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk || git sparse-checkout set iPhoneOS16.0.sdk
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
           cd -
-          ls /tmp/ios-sdks/
-          cp -rf /tmp/ios-sdks/iPhoneOS*.sdk $THEOS/sdks/
-          ls $THEOS/sdks/
+          SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK=$SDK" >> $GITHUB_ENV
+          echo "SDK: $SDK"
+          ls "$SDK" | head -5
 
           # 安装ldid
           brew install ldid
 
           # 验证
-          $THEOS/bin/logos.pl --help 2>&1 | head -1 || true
+          ls -la $THEOS/bin/logos.pl
           ldid --version 2>&1 || true
 
-      - name: Build Tweak.dylib
+      - name: Build Tweak.dylib (logos.pl + clang direct)
         run: |
-          export THEOS=~/theos
-          cd Tweak
-          make clean package FINALPACKAGE=1 THEOS_DEVICE_IP=
-          ls -la .theos/obj/debug/*.dylib
+          SDK="${{ env.SDK }}"
+          THEOS=~/theos
+          echo "SDK: $SDK"
+          echo "THEOS: $THEOS"
+
+          # 1. 用logos.pl处理Logos语法 (%hook -> MSHookFunction)
+          $THEOS/bin/logos.pl Tweak/Tweak.xm > Tweak/Tweak.mm
+          echo "logos.pl处理完成，Tweak.mm大小: $(wc -c < Tweak/Tweak.mm)"
+          head -20 Tweak/Tweak.mm
+
+          # 2. 用clang直接编译dylib
+          clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -fobjc-arc -fno-modules -Wno-deprecated-declarations \
+            -I"$THEOS/vendor/include" \
+            -L"$THEOS/vendor/lib" \
+            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
+            -lsubstrate \
+            -dynamiclib -install_name /usr/lib/AisiMonitor.dylib \
+            -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
+
+          echo "Tweak.dylib编译完成"
+          ls -la AisiMonitor.dylib
+          file AisiMonitor.dylib
 
       - name: Build root helper
         run: |
-          SDK=$(ls -d ~/theos/sdks/iPhoneOS*.sdk | head -1)
-          echo "SDK: $SDK"
+          SDK="${{ env.SDK }}"
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" \
-            -o helper/aisi_helper \
-            helper/helper.c \
-            -framework Foundation -framework IOKit \
-            -O2 -Wno-deprecated-declarations
-          chmod 6755 helper/aisi_helper
-          ls -la helper/aisi_helper
-          file helper/aisi_helper
+            -o aisi_helper helper/helper.c \
+            -framework Foundation -framework IOKit -O2 -Wno-deprecated-declarations
+          chmod 6755 aisi_helper
+          ls -la aisi_helper
+          file aisi_helper
 
-      - name: Build App
+      - name: Build App (clang direct)
         run: |
-          export THEOS=~/theos
-          make clean package FINALPACKAGE=1 THEOS_DEVICE_IP=
-          # 查找编译好的APP
-          find . -name "AisiSpy.app" -type d 2>/dev/null
+          SDK="${{ env.SDK }}"
+
+          clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -fobjc-arc -fno-modules -Wno-deprecated-declarations \
+            -IAisiSpy \
+            -framework UIKit -framework Foundation -framework CoreGraphics \
+            -o AisiSpy \
+            AisiSpy/main.m AisiSpy/AppDelegate.m AisiSpy/ViewController.m AisiSpy/LogViewController.m 2>&1
+
+          echo "App编译完成"
+          ls -la AisiSpy
+          file AisiSpy
 
       - name: Package IPA
         run: |
-          # 找到APP路径
-          APP_PATH=$(find .theos -name "AisiSpy.app" -type d 2>/dev/null | head -1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find ~/theos -name "AisiSpy.app" -type d 2>/dev/null | head -1)
-          fi
-          echo "APP_PATH: $APP_PATH"
-          ls -la "$APP_PATH"
+          # 创建APP包结构
+          rm -rf Payload
+          mkdir -p Payload/AisiSpy.app
 
-          # 打包
-          rm -rf build
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/AisiSpy.app
+          # 复制文件
+          cp AisiSpy Payload/AisiSpy.app/
+          cp aisi_helper Payload/AisiSpy.app/
+          cp AisiMonitor.dylib Payload/AisiSpy.app/
+          cp Resources/Info.plist Payload/AisiSpy.app/
 
-          # 放入helper和tweak
-          cp helper/aisi_helper build/Payload/AisiSpy.app/
-          cp Tweak/.theos/obj/debug/AisiMonitor.dylib build/Payload/AisiSpy.app/
-          chmod 6755 build/Payload/AisiSpy.app/aisi_helper
-          chmod 755 build/Payload/AisiSpy.app/AisiMonitor.dylib
+          # 设置权限
+          chmod 755 Payload/AisiSpy.app/AisiSpy
+          chmod 6755 Payload/AisiSpy.app/aisi_helper
+          chmod 755 Payload/AisiSpy.app/AisiMonitor.dylib
 
           # 签名
-          ldid -SResources/entitlements.plist build/Payload/AisiSpy.app/AisiSpy
-          ldid -SResources/entitlements.plist build/Payload/AisiSpy.app/aisi_helper
-          cp Resources/Info.plist build/Payload/AisiSpy.app/Info.plist
+          ldid -SResources/entitlements.plist Payload/AisiSpy.app/AisiSpy
+          ldid -SResources/entitlements.plist Payload/AisiSpy.app/aisi_helper
 
           # 打包IPA
-          cd build
-          zip -qr ../AisiSpy.ipa Payload/
-          cd ..
+          zip -qr AisiSpy.ipa Payload/
           cp AisiSpy.ipa AisiSpy.tipa
 
+          echo "=== 打包完成 ==="
           ls -la AisiSpy.ipa AisiSpy.tipa
+          echo "=== APP内容 ==="
+          ls -la Payload/AisiSpy.app/
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
