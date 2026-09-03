@@ -7,10 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#include <mach/vm_map.h>
 #include <mach/thread_act.h>
 #include <pthread.h>
 #include <dlfcn.h>
@@ -210,7 +212,7 @@ static int inject_dylib(task_port_t task, const char *dylib_path) {
     usleep(500000); // 500ms
 
     // 6. 读取返回值（x0寄存器）
-    thread_state64_t result_state;
+    arm_thread_state64_t result_state;
     mach_msg_type_number_t result_count = ARM_THREAD_STATE64_COUNT;
     kr = thread_get_state(thread, ARM_THREAD_STATE64, (thread_state_t)&result_state, &result_count);
     if (kr == KERN_SUCCESS) {
