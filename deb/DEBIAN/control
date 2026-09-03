@@ -1,0 +1,9 @@
+Package: com.aisispy.monitor
+Name: AisiMonitor
+Version: 1.0
+Architecture: iphoneos-arm
+Description: 爱思助手监视工具 - 反调试绕过+ESP绘制Hook+日志输出
+Maintainer: AisiSpy
+Section: Tweaks
+Depends: mobilesubstrate
+Priority: optional

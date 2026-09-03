@@ -1,0 +1,92 @@
+name: Build AisiMonitor DEB (Jailbreak Tweak)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Tweak/**'
+      - 'deb/**'
+      - '.github/workflows/build-deb.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools + SDK + ldid
+        run: |
+          export THEOS=~/theos
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+          git clone --depth 1 --recursive https://github.com/theos/theos.git $THEOS
+
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
+          cd /tmp/ios-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
+          cd -
+          SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK=$SDK" >> $GITHUB_ENV
+          echo "SDK: $SDK"
+
+          brew install ldid dpkg
+
+      - name: Build Tweak.dylib
+        run: |
+          SDK="${{ env.SDK }}"
+          THEOS=~/theos
+
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -fobjc-arc -fno-modules -Wno-deprecated-declarations \
+            -I"$THEOS/vendor/include" \
+            -F"$THEOS/vendor/lib" \
+            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
+            -framework CydiaSubstrate \
+            -lc++ \
+            -dynamiclib -install_name /Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib \
+            -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
+
+          echo "编译完成，退出码: $?"
+          ls -la AisiMonitor.dylib
+          file AisiMonitor.dylib
+
+          # 签名
+          ldid -S AisiMonitor.dylib
+          echo "签名完成"
+
+      - name: Package DEB
+        run: |
+          # 创建deb包结构
+          rm -rf deb_package
+          mkdir -p deb_package/DEBIAN
+          mkdir -p deb_package/Library/MobileSubstrate/DynamicLibraries
+
+          # 复制control
+          cp deb/DEBIAN/control deb_package/DEBIAN/
+
+          # 复制dylib和plist
+          cp AisiMonitor.dylib deb_package/Library/MobileSubstrate/DynamicLibraries/
+          cp deb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist deb_package/Library/MobileSubstrate/DynamicLibraries/
+
+          # 设置权限
+          chmod 755 deb_package/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib
+          chmod 644 deb_package/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist
+          chmod 644 deb_package/DEBIAN/control
+
+          # 打包
+          dpkg-deb --build deb_package AisiMonitor.deb
+
+          echo "=== 打包完成 ==="
+          ls -la AisiMonitor.deb
+          dpkg-deb --info AisiMonitor.deb
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: AisiMonitor-DEB
+          path: AisiMonitor.deb
+          retention-days: 30
