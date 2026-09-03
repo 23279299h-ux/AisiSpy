@@ -6,6 +6,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <substrate.h>
+#import <objc/runtime.h>
 #import <dlfcn.h>
 #import <sys/types.h>
 #import <sys/sysctl.h>
@@ -20,11 +21,11 @@ static pthread_mutex_t g_logMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&g_logMutex); \
     if (g_logFile) { \
         NSDate *now = [NSDate date]; \
-        NSDateFormatter *_fmt = [[NSDateFormatter alloc] init]; \
-        [_fmt setDateFormat:@"HH:mm:ss.SSS"]; \
-        fprintf(g_logFile, "[%s] " fmt "\n", [[_fmt stringFromDate:now] UTF8String], ##__VA_ARGS__); \
+        NSDateFormatter *_df = [[NSDateFormatter alloc] init]; \
+        [_df setDateFormat:@"HH:mm:ss.SSS"]; \
+        NSString *_msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+        fprintf(g_logFile, "[%s] %s\n", [[_df stringFromDate:now] UTF8String], [_msg UTF8String]); \
         fflush(g_logFile); \
-        [_fmt release]; \
     } \
     pthread_mutex_unlock(&g_logMutex); \
 } while(0)
@@ -66,7 +67,7 @@ static int my_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void
     return ret;
 }
 
-static kern_return_t (*orig_task_get_exception_ports)(task_t, exception_mask_t, exception_mask_array_t, mach_msg_type_number_t, exception_port_array_t, exception_behavior_array_t, thread_state_flavor_array_t);
+static kern_return_t (*orig_task_get_exception_ports)(task_t, exception_mask_t, exception_mask_array_t, mach_msg_type_number_t *, exception_port_array_t, exception_behavior_array_t, thread_state_flavor_array_t);
 static kern_return_t my_task_get_exception_ports(task_t task, exception_mask_t masks, exception_mask_array_t masks_out, mach_msg_type_number_t *masksCnt, exception_port_array_t ports, exception_behavior_array_t behaviors, thread_state_flavor_array_t flavors) {
     kern_return_t ret = orig_task_get_exception_ports(task, masks, masks_out, masksCnt, ports, behaviors, flavors);
     if (task == mach_task_self()) {
