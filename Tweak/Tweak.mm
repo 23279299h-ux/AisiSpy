@@ -20,11 +20,11 @@ static pthread_mutex_t g_logMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&g_logMutex); \
     if (g_logFile) { \
         NSDate *now = [NSDate date]; \
-        NSDateFormatter *fmt = [[NSDateFormatter alloc] init]; \
-        [fmt setDateFormat:@"HH:mm:ss.SSS"]; \
-        fprintf(g_logFile, "[%s] " fmt "\n", [[fmt stringFromDate:now] UTF8String], ##__VA_ARGS__); \
+        NSDateFormatter *_fmt = [[NSDateFormatter alloc] init]; \
+        [_fmt setDateFormat:@"HH:mm:ss.SSS"]; \
+        fprintf(g_logFile, "[%s] " fmt "\n", [[_fmt stringFromDate:now] UTF8String], ##__VA_ARGS__); \
         fflush(g_logFile); \
-        [fmt release]; \
+        [_fmt release]; \
     } \
     pthread_mutex_unlock(&g_logMutex); \
 } while(0)
