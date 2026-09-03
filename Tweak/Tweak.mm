@@ -23,7 +23,7 @@ static pthread_mutex_t g_logMutex = PTHREAD_MUTEX_INITIALIZER;
         NSDate *now = [NSDate date]; \
         NSDateFormatter *_df = [[NSDateFormatter alloc] init]; \
         [_df setDateFormat:@"HH:mm:ss.SSS"]; \
-        NSString *_msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+        NSString *_msg = [NSString stringWithFormat:@"" fmt, ##__VA_ARGS__]; \
         fprintf(g_logFile, "[%s] %s\n", [[_df stringFromDate:now] UTF8String], [_msg UTF8String]); \
         fflush(g_logFile); \
     } \
