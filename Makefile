@@ -12,7 +12,7 @@ AisiSpy_FILES = \
 	AisiSpy/LogViewController.m
 
 AisiSpy_FRAMEWORKS = UIKit Foundation CoreGraphics
-AisiSpy_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -IAisiSpy
+AisiSpy_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -IAisiSpy -fno-modules
 AisiSpy_LDFLAGS = -F.
 
 # 资源文件
