@@ -47,7 +47,7 @@ jobs:
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -framework CydiaSubstrate \
             -lc++ \
-            -dynamiclib -install_name /Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib \
+            -dynamiclib -install_name /var/jb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib \
             -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
 
           echo "编译完成，退出码: $?"
@@ -58,35 +58,36 @@ jobs:
           ldid -S AisiMonitor.dylib
           echo "签名完成"
 
-      - name: Package DEB
+      - name: Package DEB (rootless for roothide)
         run: |
-          # 创建deb包结构
+          # 创建rootless deb包结构
           rm -rf deb_package
           mkdir -p deb_package/DEBIAN
-          mkdir -p deb_package/Library/MobileSubstrate/DynamicLibraries
+          mkdir -p deb_package/var/jb/Library/MobileSubstrate/DynamicLibraries
 
           # 复制control
           cp deb/DEBIAN/control deb_package/DEBIAN/
 
           # 复制dylib和plist
-          cp AisiMonitor.dylib deb_package/Library/MobileSubstrate/DynamicLibraries/
-          cp deb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist deb_package/Library/MobileSubstrate/DynamicLibraries/
+          cp AisiMonitor.dylib deb_package/var/jb/Library/MobileSubstrate/DynamicLibraries/
+          cp deb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist deb_package/var/jb/Library/MobileSubstrate/DynamicLibraries/
 
           # 设置权限
-          chmod 755 deb_package/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib
-          chmod 644 deb_package/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist
+          chmod 755 deb_package/var/jb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib
+          chmod 644 deb_package/var/jb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.plist
           chmod 644 deb_package/DEBIAN/control
 
           # 打包
-          dpkg-deb --build deb_package AisiMonitor.deb
+          dpkg-deb --build deb_package AisiMonitor-rootless.deb
 
           echo "=== 打包完成 ==="
-          ls -la AisiMonitor.deb
-          dpkg-deb --info AisiMonitor.deb
+          ls -la AisiMonitor-rootless.deb
+          dpkg-deb --info AisiMonitor-rootless.deb
+          dpkg-deb --contents AisiMonitor-rootless.deb
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
-          name: AisiMonitor-DEB
-          path: AisiMonitor.deb
+          name: AisiMonitor-DEB-rootless
+          path: AisiMonitor-rootless.deb
           retention-days: 30
