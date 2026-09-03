@@ -11,13 +11,21 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
 #include <mach/vm_map.h>
 #include <mach/thread_act.h>
+#include <mach-o/dyld_images.h>
 #include <pthread.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <errno.h>
+
+/* iOS SDK中mach_vm_*被隐藏，用vm_*代替 */
+#define mach_vm_address_t vm_address_t
+#define mach_vm_size_t vm_size_t
+#define mach_vm_allocate vm_allocate
+#define mach_vm_write vm_write
+#define mach_vm_deallocate vm_deallocate
+#define mach_vm_read_overwrite vm_read_overwrite
 
 #define TARGET_BUNDLE "rn.notes.best"
 #define LOG_FILE "/var/mobile/Documents/aisi_helper.log"
