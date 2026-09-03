@@ -1,0 +1,109 @@
+name: Build AisiSpy IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos + SDK + ldid
+        run: |
+          export THEOS=~/theos
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+          # 安装theos
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+
+          # 下载iOS SDK (16.5)
+          curl -L -o sdks.zip "https://github.com/xybp888/iOS-SDKs/archive/refs/heads/master.zip"
+          unzip -q sdks.zip -d /tmp/sdks_src
+          ls /tmp/sdks_src/iOS-SDKs-master/
+          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.5.sdk $THEOS/sdks/ 2>/dev/null || \
+          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.4.sdk $THEOS/sdks/ 2>/dev/null || \
+          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.0.sdk $THEOS/sdks/
+          ls $THEOS/sdks/
+
+          # 安装ldid
+          brew install ldid
+
+          # 验证
+          $THEOS/bin/logos.pl --help 2>&1 | head -1 || true
+          ldid --version 2>&1 || true
+
+      - name: Build Tweak.dylib
+        run: |
+          export THEOS=~/theos
+          cd Tweak
+          make clean package FINALPACKAGE=1 THEOS_DEVICE_IP=
+          ls -la .theos/obj/debug/*.dylib
+
+      - name: Build root helper
+        run: |
+          SDK=$(ls -d ~/theos/sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK: $SDK"
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" \
+            -o helper/aisi_helper \
+            helper/helper.c \
+            -framework Foundation -framework IOKit \
+            -O2 -Wno-deprecated-declarations
+          chmod 6755 helper/aisi_helper
+          ls -la helper/aisi_helper
+          file helper/aisi_helper
+
+      - name: Build App
+        run: |
+          export THEOS=~/theos
+          make clean package FINALPACKAGE=1 THEOS_DEVICE_IP=
+          # 查找编译好的APP
+          find . -name "AisiSpy.app" -type d 2>/dev/null
+
+      - name: Package IPA
+        run: |
+          # 找到APP路径
+          APP_PATH=$(find .theos -name "AisiSpy.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ~/theos -name "AisiSpy.app" -type d 2>/dev/null | head -1)
+          fi
+          echo "APP_PATH: $APP_PATH"
+          ls -la "$APP_PATH"
+
+          # 打包
+          rm -rf build
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/AisiSpy.app
+
+          # 放入helper和tweak
+          cp helper/aisi_helper build/Payload/AisiSpy.app/
+          cp Tweak/.theos/obj/debug/AisiMonitor.dylib build/Payload/AisiSpy.app/
+          chmod 6755 build/Payload/AisiSpy.app/aisi_helper
+          chmod 755 build/Payload/AisiSpy.app/AisiMonitor.dylib
+
+          # 签名
+          ldid -SResources/entitlements.plist build/Payload/AisiSpy.app/AisiSpy
+          ldid -SResources/entitlements.plist build/Payload/AisiSpy.app/aisi_helper
+          cp Resources/Info.plist build/Payload/AisiSpy.app/Info.plist
+
+          # 打包IPA
+          cd build
+          zip -qr ../AisiSpy.ipa Payload/
+          cd ..
+          cp AisiSpy.ipa AisiSpy.tipa
+
+          ls -la AisiSpy.ipa AisiSpy.tipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AisiSpy-IPA
+          path: |
+            AisiSpy.ipa
+            AisiSpy.tipa
+          retention-days: 30
