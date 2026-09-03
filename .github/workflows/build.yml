@@ -22,13 +22,13 @@ jobs:
           # 安装theos
           git clone --recursive https://github.com/theos/theos.git $THEOS
 
-          # 下载iOS SDK (16.5)
-          curl -L -o sdks.zip "https://github.com/xybp888/iOS-SDKs/archive/refs/heads/master.zip"
-          unzip -q sdks.zip -d /tmp/sdks_src
-          ls /tmp/sdks_src/iOS-SDKs-master/
-          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.5.sdk $THEOS/sdks/ 2>/dev/null || \
-          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.4.sdk $THEOS/sdks/ 2>/dev/null || \
-          cp -r /tmp/sdks_src/iOS-SDKs-master/iPhoneOS16.0.sdk $THEOS/sdks/
+          # 用sparse checkout只下载需要的SDK（避免下载1.6GB全量SDK）
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
+          cd /tmp/ios-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk || git sparse-checkout set iPhoneOS16.0.sdk
+          cd -
+          ls /tmp/ios-sdks/
+          cp -rf /tmp/ios-sdks/iPhoneOS*.sdk $THEOS/sdks/
           ls $THEOS/sdks/
 
           # 安装ldid
