@@ -7,6 +7,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <substrate.h>
 #import <objc/runtime.h>
+#import <mach-o/dyld.h>
 #import <dlfcn.h>
 #import <sys/types.h>
 #import <sys/sysctl.h>
