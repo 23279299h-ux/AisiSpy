@@ -35,17 +35,13 @@ jobs:
 
           brew install ldid dpkg
 
-      - name: Build Tweak.dylib
+      - name: Build Tweak.dylib (no substrate dependency)
         run: |
           SDK="${{ env.SDK }}"
-          THEOS=~/theos
 
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -fobjc-arc -fno-modules -Wno-deprecated-declarations \
-            -I"$THEOS/vendor/include" \
-            -F"$THEOS/vendor/lib" \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
-            -framework CydiaSubstrate \
             -lc++ \
             -dynamiclib -install_name /var/jb/Library/MobileSubstrate/DynamicLibraries/AisiMonitor.dylib \
             -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
