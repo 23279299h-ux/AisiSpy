@@ -233,16 +233,15 @@
 
 - (void)runHelperCommand:(NSString *)cmd completion:(void (^)(NSString *))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSTask *task = [[NSTask alloc] init];
-        [task setLaunchPath:@"/bin/sh"];
-        [task setArguments:@[@"-c", cmd]];
-        NSPipe *pipe = [NSPipe pipe];
-        [task setStandardOutput:pipe];
-        [task setStandardError:pipe];
-        [task launch];
-        [task waitUntilExit];
-        NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
-        NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        NSMutableString *output = [NSMutableString string];
+        FILE *pipe = popen([cmd UTF8String], "r");
+        if (pipe) {
+            char buf[1024];
+            while (fgets(buf, sizeof(buf), pipe)) {
+                [output appendString:[NSString stringWithUTF8String:buf]];
+            }
+            pclose(pipe);
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) completion(output ?: @"");
         });
