@@ -32,11 +32,15 @@ jobs:
         run: |
           SDK="${{ env.SDK }}"
 
+          # 找到libz的完整路径
+          LIBZ_PATH=$(find "$SDK" -name "libz.1.dylib" 2>/dev/null | head -1)
+          echo "libz路径: $LIBZ_PATH"
+
           # 编译dylib，重新导出系统libz，同时包含我们的constructor
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -dynamiclib \
             -install_name @executable_path/libz.1.dylib \
-            -Wl,-reexport-lz \
+            -Xlinker -reexport -Xlinker "$LIBZ_PATH" \
             -o AisiReexportLibz.dylib Tweak/minimal.m 2>&1
 
           echo "编译完成，退出码: $?"
@@ -45,7 +49,7 @@ jobs:
 
           # 检查导出符号
           echo "=== 导出符号 ==="
-          nm -gU AisiReexportLibz.dylib | head -30
+          nm -gU AisiReexportLibz.dylib | head -50
 
           # 签名
           ldid -S AisiReexportLibz.dylib
