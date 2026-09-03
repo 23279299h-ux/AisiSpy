@@ -107,17 +107,17 @@ jobs:
             -fobjc-arc -fno-modules -Wno-deprecated-declarations \
             -IAisiSpy \
             -framework UIKit -framework Foundation -framework CoreGraphics \
-            -o AisiSpy \
+            -o AisiSpy_bin \
             AisiSpy/main.m AisiSpy/AppDelegate.m AisiSpy/ViewController.m AisiSpy/LogViewController.m 2>&1
           echo "退出码: $?"
-          ls -la AisiSpy 2>&1
-          file AisiSpy 2>&1
+          ls -la AisiSpy_bin 2>&1
+          file AisiSpy_bin 2>&1
 
       - name: Package IPA
         run: |
           rm -rf Payload
           mkdir -p Payload/AisiSpy.app
-          cp AisiSpy Payload/AisiSpy.app/
+          cp AisiSpy_bin Payload/AisiSpy.app/AisiSpy
           cp aisi_helper Payload/AisiSpy.app/
           cp AisiMonitor.dylib Payload/AisiSpy.app/
           cp Resources/Info.plist Payload/AisiSpy.app/
