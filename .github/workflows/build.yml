@@ -14,15 +14,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install tools (theos for logos.pl only + SDK + ldid)
+      - name: Install tools + SDK + ldid
         run: |
           export THEOS=~/theos
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
-          # 安装theos（只用于logos.pl处理Logos语法）
+          # 安装theos（用于substrate头文件和库）
           git clone --depth 1 --recursive https://github.com/theos/theos.git $THEOS
 
-          # 下载iOS SDK (sparse checkout只下16.5)
+          # 下载iOS SDK
           git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
           cd /tmp/ios-sdks
           git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
@@ -30,34 +30,64 @@ jobs:
           SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
           echo "SDK=$SDK" >> $GITHUB_ENV
           echo "SDK: $SDK"
-          ls "$SDK" | head -5
+          ls "$SDK/usr/lib" | head -10
 
           # 安装ldid
           brew install ldid
 
-          # 验证
-          ls -la $THEOS/bin/logos.pl
+          # 检查编译环境
+          echo "=== clang版本 ==="
+          xcrun --sdk iphoneos clang --version
+          echo "=== substrate头文件 ==="
+          ls -la $THEOS/vendor/include/substrate.h 2>&1 || echo "substrate.h not found"
+          echo "=== substrate库 ==="
+          find $THEOS/vendor -name "*substrate*" -o -name "*Substrate*" 2>/dev/null | head -10
+          echo "=== ldid ==="
           ldid --version 2>&1 || true
 
-      - name: Build Tweak.dylib (clang direct)
+      - name: Test compile (simple ObjC file)
+        run: |
+          SDK="${{ env.SDK }}"
+          echo "=== 测试简单编译 ==="
+          cat > /tmp/test.m << 'EOF'
+          #import <Foundation/Foundation.h>
+          #import <UIKit/UIKit.h>
+          int main() {
+              UIView *v = [[UIView alloc] init];
+              NSLog(@"test: %@", v);
+              return 0;
+          }
+          EOF
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -fobjc-arc -fno-modules \
+            -framework UIKit -framework Foundation \
+            -o /tmp/test /tmp/test.m 2>&1
+          echo "退出码: $?"
+          ls -la /tmp/test 2>&1
+          file /tmp/test 2>&1
+
+      - name: Build Tweak.dylib
         run: |
           SDK="${{ env.SDK }}"
           THEOS=~/theos
-          echo "SDK: $SDK"
+          echo "=== 编译Tweak ==="
 
-          # 直接用clang编译Tweak.mm（纯ObjC++，不用Logos语法）
-          clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+          # 先检查substrate库
+          echo "查找substrate库:"
+          find $THEOS -name "*.dylib" | xargs -I{} sh -c 'echo "{}: $(file {} | head -1)"' 2>/dev/null | head -20
+
+          # 编译
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -fobjc-arc -fno-modules -Wno-deprecated-declarations \
             -I"$THEOS/vendor/include" \
-            -L"$THEOS/vendor/lib" \
+            -F"$THEOS/vendor/lib" \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
-            -lsubstrate \
+            -framework CydiaSubstrate \
             -dynamiclib -install_name /usr/lib/AisiMonitor.dylib \
             -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
-
-          echo "Tweak.dylib编译完成"
-          ls -la AisiMonitor.dylib
-          file AisiMonitor.dylib
+          echo "退出码: $?"
+          ls -la AisiMonitor.dylib 2>&1
+          file AisiMonitor.dylib 2>&1
 
       - name: Build root helper
         run: |
@@ -69,49 +99,36 @@ jobs:
           ls -la aisi_helper
           file aisi_helper
 
-      - name: Build App (clang direct)
+      - name: Build App
         run: |
           SDK="${{ env.SDK }}"
-
-          clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -fobjc-arc -fno-modules -Wno-deprecated-declarations \
             -IAisiSpy \
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -o AisiSpy \
             AisiSpy/main.m AisiSpy/AppDelegate.m AisiSpy/ViewController.m AisiSpy/LogViewController.m 2>&1
-
-          echo "App编译完成"
-          ls -la AisiSpy
-          file AisiSpy
+          echo "退出码: $?"
+          ls -la AisiSpy 2>&1
+          file AisiSpy 2>&1
 
       - name: Package IPA
         run: |
-          # 创建APP包结构
           rm -rf Payload
           mkdir -p Payload/AisiSpy.app
-
-          # 复制文件
           cp AisiSpy Payload/AisiSpy.app/
           cp aisi_helper Payload/AisiSpy.app/
           cp AisiMonitor.dylib Payload/AisiSpy.app/
           cp Resources/Info.plist Payload/AisiSpy.app/
-
-          # 设置权限
           chmod 755 Payload/AisiSpy.app/AisiSpy
           chmod 6755 Payload/AisiSpy.app/aisi_helper
           chmod 755 Payload/AisiSpy.app/AisiMonitor.dylib
-
-          # 签名
           ldid -SResources/entitlements.plist Payload/AisiSpy.app/AisiSpy
           ldid -SResources/entitlements.plist Payload/AisiSpy.app/aisi_helper
-
-          # 打包IPA
           zip -qr AisiSpy.ipa Payload/
           cp AisiSpy.ipa AisiSpy.tipa
-
           echo "=== 打包完成 ==="
           ls -la AisiSpy.ipa AisiSpy.tipa
-          echo "=== APP内容 ==="
           ls -la Payload/AisiSpy.app/
 
       - name: Upload IPA
