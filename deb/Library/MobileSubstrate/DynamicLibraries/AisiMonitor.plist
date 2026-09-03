@@ -7,6 +7,11 @@
         <key>Bundles</key>
         <array>
             <string>rn.notes.best</string>
+            <string>com.apple.springboard</string>
+        </array>
+        <key>Executables</key>
+        <array>
+            <string>AisiSpy</string>
         </array>
     </dict>
 </dict>

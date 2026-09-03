@@ -247,6 +247,13 @@ static void hookObjcMethods() {
 // ========== 构造函数（最早执行）==========
 __attribute__((constructor))
 static void AisiMonitorConstructor() {
+    // 最简单的测试：直接写文件，不依赖任何东西
+    FILE *testFile = fopen("/tmp/aisi_monitor_loaded.txt", "w");
+    if (testFile) {
+        fprintf(testFile, "AisiMonitor constructor executed! PID: %d\n", getpid());
+        fclose(testFile);
+    }
+
     @autoreleasepool {
         initLog();
         LOG("========== AisiMonitor构造函数执行 ==========");
