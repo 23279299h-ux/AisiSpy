@@ -39,19 +39,13 @@ jobs:
           ls -la $THEOS/bin/logos.pl
           ldid --version 2>&1 || true
 
-      - name: Build Tweak.dylib (logos.pl + clang direct)
+      - name: Build Tweak.dylib (clang direct)
         run: |
           SDK="${{ env.SDK }}"
           THEOS=~/theos
           echo "SDK: $SDK"
-          echo "THEOS: $THEOS"
 
-          # 1. 用logos.pl处理Logos语法 (%hook -> MSHookFunction)
-          $THEOS/bin/logos.pl Tweak/Tweak.xm > Tweak/Tweak.mm
-          echo "logos.pl处理完成，Tweak.mm大小: $(wc -c < Tweak/Tweak.mm)"
-          head -20 Tweak/Tweak.mm
-
-          # 2. 用clang直接编译dylib
+          # 直接用clang编译Tweak.mm（纯ObjC++，不用Logos语法）
           clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -fobjc-arc -fno-modules -Wno-deprecated-declarations \
             -I"$THEOS/vendor/include" \
