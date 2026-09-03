@@ -13,6 +13,8 @@
 #import <sys/sysctl.h>
 #import <mach/mach.h>
 #import <pthread.h>
+#import <errno.h>
+#import <string.h>
 
 // ========== 日志系统 ==========
 static FILE *g_logFile = NULL;
@@ -20,24 +22,32 @@ static pthread_mutex_t g_logMutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define LOG(fmt, ...) do { \
     pthread_mutex_lock(&g_logMutex); \
+    NSDate *now = [NSDate date]; \
+    NSDateFormatter *_df = [[NSDateFormatter alloc] init]; \
+    [_df setDateFormat:@"HH:mm:ss.SSS"]; \
+    NSString *_msg = [NSString stringWithFormat:@"" fmt, ##__VA_ARGS__]; \
+    NSString *_logLine = [NSString stringWithFormat:@"[%@] %@", [_df stringFromDate:now], _msg]; \
+    NSLog(@"[AisiMonitor] %@", _msg); \
     if (g_logFile) { \
-        NSDate *now = [NSDate date]; \
-        NSDateFormatter *_df = [[NSDateFormatter alloc] init]; \
-        [_df setDateFormat:@"HH:mm:ss.SSS"]; \
-        NSString *_msg = [NSString stringWithFormat:@"" fmt, ##__VA_ARGS__]; \
-        fprintf(g_logFile, "[%s] %s\n", [[_df stringFromDate:now] UTF8String], [_msg UTF8String]); \
+        fprintf(g_logFile, "%s\n", [_logLine UTF8String]); \
         fflush(g_logFile); \
     } \
     pthread_mutex_unlock(&g_logMutex); \
 } while(0)
 
 static void initLog() {
-    NSString *logPath = @"/var/mobile/Documents/aisi_monitor.log";
-    g_logFile = fopen([logPath UTF8String], "a");
-    if (g_logFile) {
-        fprintf(g_logFile, "\n========== AisiMonitor 启动 ==========\n");
-        fprintf(g_logFile, "PID: %d, 时间: %s\n", getpid(), [[[NSDate date] description] UTF8String]);
-        fflush(g_logFile);
+    NSArray *paths = @[@"/tmp/aisi_monitor.log", @"/var/mobile/Documents/aisi_monitor.log"];
+    for (NSString *logPath in paths) {
+        g_logFile = fopen([logPath UTF8String], "a");
+        if (g_logFile) {
+            NSLog(@"[AisiMonitor] 日志文件: %@", logPath);
+            fprintf(g_logFile, "\n========== AisiMonitor 启动 ==========\n");
+            fprintf(g_logFile, "PID: %d, 时间: %s\n", getpid(), [[[NSDate date] description] UTF8String]);
+            fflush(g_logFile);
+            break;
+        } else {
+            NSLog(@"[AisiMonitor] 无法打开日志: %s (%s)", [logPath UTF8String], strerror(errno));
+        }
     }
 }
 
