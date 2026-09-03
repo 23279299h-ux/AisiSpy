@@ -104,7 +104,7 @@ jobs:
         run: |
           SDK="${{ env.SDK }}"
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
-            -fobjc-arc -fno-modules -Wno-deprecated-declarations \
+            -fobjc-arc -fobjc-link-runtime -fno-modules -Wno-deprecated-declarations \
             -IAisiSpy \
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -o AisiSpy_bin \
