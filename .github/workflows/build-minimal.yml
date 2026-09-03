@@ -1,0 +1,52 @@
+name: Build Minimal Test Dylib
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Tweak/minimal.m'
+      - '.github/workflows/build-minimal.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SDK + ldid
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
+          cd /tmp/ios-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
+          cd -
+          SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK=$SDK" >> $GITHUB_ENV
+          echo "SDK: $SDK"
+          brew install ldid
+
+      - name: Build minimal dylib
+        run: |
+          SDK="${{ env.SDK }}"
+
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -dynamiclib -install_name @rpath/AisiMinimal.dylib \
+            -o AisiMinimal.dylib Tweak/minimal.m 2>&1
+
+          echo "编译完成，退出码: $?"
+          ls -la AisiMinimal.dylib
+          file AisiMinimal.dylib
+
+          # 签名
+          ldid -S AisiMinimal.dylib
+          echo "签名完成"
+
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: AisiMinimal-dylib
+          path: AisiMinimal.dylib
+          retention-days: 30
