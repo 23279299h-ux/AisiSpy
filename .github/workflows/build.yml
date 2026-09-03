@@ -83,6 +83,7 @@ jobs:
             -F"$THEOS/vendor/lib" \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -framework CydiaSubstrate \
+            -lc++ \
             -dynamiclib -install_name /usr/lib/AisiMonitor.dylib \
             -o AisiMonitor.dylib Tweak/Tweak.mm 2>&1
           echo "退出码: $?"
