@@ -1,0 +1,64 @@
+name: Build ASM Shellcode
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Tweak/inject_asm.s'
+      - '.github/workflows/build-asm.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SDK
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
+          cd /tmp/ios-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
+          cd -
+          SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK=$SDK" >> $GITHUB_ENV
+
+      - name: Compile ASM and extract shellcode
+        run: |
+          SDK="${{ env.SDK }}"
+
+          # 编译汇编
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -c Tweak/inject_asm.s -o inject_asm.o 2>&1
+
+          echo "编译完成: $?"
+          ls -la inject_asm.o
+
+          # 反汇编查看
+          echo "=== 反汇编 ==="
+          xcrun --sdk iphoneos objdump -d inject_asm.o 2>&1 | head -60
+
+          # 提取.text段的机器码
+          echo "=== 提取机器码 ==="
+          xcrun --sdk iphoneos otool -t inject_asm.o 2>&1
+
+          # 用python提取原始机器码
+          python3 -c "
+import struct
+with open('inject_asm.o', 'rb') as f:
+    data = f.read()
+# 找__text段
+import subprocess
+result = subprocess.run(['xcrun', '--sdk', 'iphoneos', 'otool', '-t', 'inject_asm.o'], capture_output=True, text=True)
+print(result.stdout)
+"
+
+      - name: Upload object
+        uses: actions/upload-artifact@v4
+        with:
+          name: inject-asm-o
+          path: inject_asm.o
+          retention-days: 30
