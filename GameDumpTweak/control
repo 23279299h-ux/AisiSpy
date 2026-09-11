@@ -1,0 +1,9 @@
+Package: com.aisi.gamedump
+Name: GameDump
+Version: 1.0
+Architecture: iphoneos-arm
+Description: 王者荣耀进程内存dump工具（不hook，只读内存）
+Maintainer: AisiSpy
+Author: AisiSpy
+Section: Tweaks
+Depends: mobilesubstrate, firmware (>= 15.0)
