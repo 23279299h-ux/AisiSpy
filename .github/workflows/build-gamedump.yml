@@ -2,39 +2,38 @@ name: Build GameDump Deb
 
 on:
   push:
-      paths:
-            - 'GameDumpTweak/**'
-              workflow_dispatch:
+    paths:
+      - 'GameDumpTweak/**'
+  workflow_dispatch:
 
-              jobs:
-                build:
-                    runs-on: macos-latest
-                        steps:
-                              - uses: actions/checkout@v4
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
 
-                                    - name: Install Theos
-                                            run: |
-                                                      brew install ldid xz
-                                                                git clone --recursive https://github.com/theos/theos.git $THEOS
-                                                                          curl -L https://github.com/theos/sdks/archive/master.tar.gz -o /tmp/sdks.tar.gz
-                                                                                    tar xzf /tmp/sdks.tar.gz -C /tmp
-                                                                                              cp -r /tmp/sdks-master/*.sdk $THEOS/sdks/
-                                                                                                      env:
-                                                                                                                THEOS: ${{ github.workspace }}/theos
-                                                                                                                
-                                                                                                                      - name: Build Tweak
-                                                                                                                              run: |
-                                                                                                                                        export THEOS=${{ github.workspace }}/theos
-                                                                                                                                                  cd GameDumpTweak
-                                                                                                                                                            make clean package FINALPACKAGE=1
-                                                                                                                                                                      ls -la packages/
-                                                                                                                                                                              env:
-                                                                                                                                                                                        THEOS: ${{ github.workspace }}/theos
-                                                                                                                                                                                        
-                                                                                                                                                                                              - name: Upload Artifact
-                                                                                                                                                                                                      uses: actions/upload-artifact@v4
-                                                                                                                                                                                                              with:
-                                                                                                                                                                                                                        name: GameDump-deb
-                                                                                                                                                                                                                                  path: GameDumpTweak/packages/*.deb
-                                                                                                                                                                                                                                            retention-days: 30
-                                                                                                                                                                                                                                            
+      - name: Install Theos
+        run: |
+          brew install ldid xz
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          curl -LO https://github.com/theos/sdks/archive/master.tar.gz
+          tar -xzf master.tar.gz
+          mv sdks-master/*.sdk $THEOS/sdks/
+          rm -rf sdks-master master.tar.gz
+        env:
+          THEOS: /Users/runner/theos
+
+      - name: Build
+        run: |
+          cd GameDumpTweak
+          make clean package THEOS=/Users/runner/theos
+        env:
+          THEOS: /Users/runner/theos
+          ARCHS: arm64
+          TARGET: iphone:clang:16.5:15.0
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameDump-deb
+          path: GameDumpTweak/packages/*.deb
