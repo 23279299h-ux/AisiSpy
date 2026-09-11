@@ -5,8 +5,15 @@
 static void dump_memory(void) {
     @autoreleasepool {
         NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+
+        // 等待90秒让爱思完成下载+解密+加载ESP
+        for (int i = 0; i < 9; i++) {
+            [NSThread sleepForTimeInterval:10.0];
+            NSString *status = [NSString stringWithFormat:@"waiting_%d", i*10+10];
+            [status writeToFile:[docs stringByAppendingPathComponent:[NSString stringWithFormat:@"gamedump_status_%d.txt", i*10+10]] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+
         [@"started" writeToFile:[docs stringByAppendingPathComponent:@"gamedump_started.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        [NSThread sleepForTimeInterval:30.0];
 
         NSString *dumpDir = [docs stringByAppendingPathComponent:@"gamedump"];
         [[NSFileManager defaultManager] createDirectoryAtPath:dumpDir withIntermediateDirectories:YES attributes:nil error:nil];
@@ -14,7 +21,7 @@ static void dump_memory(void) {
         mach_port_t task = mach_task_self();
         vm_address_t address = 0;
         vm_size_t size = 0;
-        NSMutableString *report = [NSMutableString stringWithString:@"=== Game Memory Dump ===\n"];
+        NSMutableString *report = [NSMutableString stringWithString:@"=== Aisi Process Memory Dump ===\n"];
         int regionCount = 0;
 
         while (1) {
@@ -23,12 +30,13 @@ static void dump_memory(void) {
             natural_t depth = 0;
             kern_return_t kr = vm_region_recurse_64(task, &address, &size, &depth, (vm_region_recurse_info_t)&info, &count);
             if (kr != KERN_SUCCESS) break;
-            if ((info.protection & VM_PROT_READ) && size > 0x1000 && size < 0x10000000) {
+            // dump所有可读区域，包括r-x（代码）和rw-（数据）
+            if ((info.protection & VM_PROT_READ) && size > 0x1000 && size < 0x20000000) {
                 vm_offset_t data = 0;
                 mach_msg_type_number_t dataSize = 0;
                 kr = vm_read(task, address, size, &data, &dataSize);
                 if (kr == KERN_SUCCESS && dataSize > 0) {
-                    NSString *filename = [NSString stringWithFormat:@"%@/region_%08x_%08x.bin", dumpDir, (uint32_t)address, (uint32_t)size];
+                    NSString *filename = [NSString stringWithFormat:@"%@/region_%08x_%08x_prot%d.bin", dumpDir, (uint32_t)address, (uint32_t)size, info.protection];
                     NSData *memData = [NSData dataWithBytes:(void *)data length:dataSize];
                     [memData writeToFile:filename atomically:YES];
                     vm_deallocate(task, data, dataSize);
