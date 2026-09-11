@@ -1,14 +1,14 @@
 #import <Foundation/Foundation.h>
 #import <mach/mach.h>
 #import <dlfcn.h>
-#import <sys/stat.h>
 
 static void dump_memory(void) {
     @autoreleasepool {
-        [@"started" writeToFile:@"/tmp/gamedump_started.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        [@"started" writeToFile:[docs stringByAppendingPathComponent:@"gamedump_started.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
         [NSThread sleepForTimeInterval:30.0];
 
-        NSString *dumpDir = @"/tmp/gamedump";
+        NSString *dumpDir = [docs stringByAppendingPathComponent:@"gamedump"];
         [[NSFileManager defaultManager] createDirectoryAtPath:dumpDir withIntermediateDirectories:YES attributes:nil error:nil];
 
         mach_port_t task = mach_task_self();
@@ -23,7 +23,6 @@ static void dump_memory(void) {
             natural_t depth = 0;
             kern_return_t kr = vm_region_recurse_64(task, &address, &size, &depth, (vm_region_recurse_info_t)&info, &count);
             if (kr != KERN_SUCCESS) break;
-
             if ((info.protection & VM_PROT_READ) && size > 0x1000 && size < 0x10000000) {
                 vm_offset_t data = 0;
                 mach_msg_type_number_t dataSize = 0;
@@ -40,17 +39,17 @@ static void dump_memory(void) {
             address += size;
             if (address > 0x400000000) break;
         }
-
         [report appendFormat:@"Total regions: %d\n", regionCount];
-        [report writeToFile:@"/tmp/gamedump_report.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        [@"done" writeToFile:@"/tmp/gamedump_done.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [report writeToFile:[docs stringByAppendingPathComponent:@"gamedump_report.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [@"done" writeToFile:[docs stringByAppendingPathComponent:@"gamedump_done.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
     }
 }
 
 __attribute__((constructor))
 static void initialize() {
     @autoreleasepool {
-        [@"tweak_loaded" writeToFile:@"/tmp/gamedump_loaded.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        [@"tweak_loaded" writeToFile:[docs stringByAppendingPathComponent:@"gamedump_loaded.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
             @autoreleasepool { dump_memory(); }
         });
