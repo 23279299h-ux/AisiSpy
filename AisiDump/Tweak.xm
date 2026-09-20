@@ -96,13 +96,25 @@ static void swizzleMethod(Class cls, SEL sel, IMP newImp, void** origImp) {
 
 __attribute__((constructor))
 static void init(void) {
+    // Write marker file FIRST - before anything else
+    FILE* marker = fopen("/tmp/aisidump_loaded.txt", "w");
+    if (marker) { fprintf(marker, "loaded pid=%d\n", getpid()); fclose(marker); }
+    
+    // Try multiple log paths
     logFile = fopen("/tmp/esp_dump.log", "w");
     if (!logFile) logFile = fopen("/var/mobile/Documents/esp_dump.log", "w");
+    if (!logFile) {
+        // Last resort: use the app's own tmp directory
+        NSString *tmpDir = NSTemporaryDirectory();
+        NSString *logPath = [tmpDir stringByAppendingPathComponent:@"esp_dump.log"];
+        logFile = fopen([logPath UTF8String], "w");
+    }
     
-    logToFile(@"=== AisiDump Tweak v1.0 Loaded ===");
+    logToFile(@"=== AisiDump Tweak v2.0 Loaded ===");
     logToFile(@"[INIT] PID: %d", getpid());
     logToFile(@"[INIT] Bundle: %s", 
         [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown");
+    logToFile(@"[INIT] Log path: %s", logFile ? "ok" : "FAILED");
     
     unityBase = findUnityBase();
     logToFile(@"[INIT] UnityFramework base: 0x%llx", unityBase);
