@@ -190,11 +190,10 @@ static void *monitorThread(void *arg) {
                 rounds++;
                 dumped = 1;
                 alog("*** DUMP ROUND %d COMPLETE ***", rounds);
-                /* 跳过60秒, 再补采一轮(加载器绑定/自解壳可能稍晚完成) */
-                tick += 59;
-                continue;
+                break;   /* 跳出镜像循环 */
             }
         }
+        if (dumped) tick += 59;  /* 本轮已dump, 快进60s再补采 */
         sleep(1);
     }
 

@@ -1,5 +1,8 @@
 name: Build AisiDump rootless deb
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -62,6 +65,7 @@ jobs:
           path: AisiDump-rootless.deb
 
       - name: Publish release (anonymous download)
+        continue-on-error: true
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v5-build.${{ github.run_number }}
