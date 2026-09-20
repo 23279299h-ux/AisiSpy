@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <unistd.h>
 #include <mach-o/dyld.h>
 #include <dlfcn.h>
 
