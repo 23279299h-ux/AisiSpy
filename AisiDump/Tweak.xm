@@ -1,16 +1,21 @@
-// AisiDump Tweak.xm
-// Hook vm_read_overwrite to dump all game memory reads
-// Target: rn.notes.best (爱思助手)
-// RootHide/ElleKit rootless
+// AisiDump Tweak.mm
+// Standalone RootHide/ElleKit tweak - no Theos/substrate dependency
+// Logs ESP drawing calls and memory reads to /tmp/esp_dump.log
 
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
-#import <substrate.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
+#import <mach/mach_init.h>
+#import <mach/vm_map.h>
+#import <mach/mach_vm.h>
+#import <sys/mman.h>
+#import <stdio.h>
 
 static FILE* logFile = NULL;
-static mach_port_t ourTask = 0;
 static uint64_t unityBase = 0;
-static int dumpCount = 0;
 
 static void logToFile(NSString* fmt, ...) {
     if (!logFile) return;
@@ -22,148 +27,142 @@ static void logToFile(NSString* fmt, ...) {
     fflush(logFile);
 }
 
-// Get UnityFramework base address
 static uint64_t findUnityBase(void) {
-    Dl_info info;
-    void* handle = dlopen("/private/var/containers/Bundle/Application/"
-                          "*/王者荣耀.app/Frameworks/UnityFramework", RTLD_LAZY);
-    if (handle) { dlclose(handle); }
-    
-    // Iterate loaded images
-    uint32_t count = 0;
-    dyld_image_count();
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
         const char* name = _dyld_get_image_name(i);
-        if (strstr(name, "UnityFramework")) {
+        if (name && strstr(name, "UnityFramework")) {
             return (uint64_t)_dyld_get_image_header(i);
         }
     }
     return 0;
 }
 
-// Hook mach_vm_read_overwrite
-// This is the syscall eye.framework uses to read game memory
-static kern_return_t (*orig_mach_vm_read_overwrite)(
-    vm_map_t target_task,
-    vm_address_t address,
-    vm_size_t size,
-    vm_address_t data,
-    vm_size_t* outsize);
-
-static kern_return_t hook_mach_vm_read_overwrite(
-    vm_map_t target_task,
-    vm_address_t address,
-    vm_size_t size,
-    vm_address_t data,
-    vm_size_t* outsize) {
-    
-    kern_return_t kr = orig_mach_vm_read_overwrite(
-        target_task, address, size, data, outsize);
-    
-    if (kr == KERN_SUCCESS && unityBase) {
-        // Only log reads from UnityFramework address range
-        uint64_t offset = address - unityBase;
-        if (offset > 0x100000 && offset < 0x20000000 && dumpCount < 50000) {
-            dumpCount++;
-            // Read the value
-            uint64_t val = 0;
-            if (size == 8) {
-                val = *(uint64_t*)data;
-            } else if (size == 4) {
-                val = *(uint32_t*)data;
-            } else if (size == 2) {
-                val = *(uint16_t*)data;
-            }
-            
-            // Log interesting offsets (entity range)
-            if ((offset >= 0x12960000 && offset <= 0x129B0000) ||  // entity list region
-                (offset >= 0x200 && offset <= 0x600) ||  // entity struct offsets
-                dumpCount % 100 == 0) {
-                logToFile(@"[DUMP] read addr=0x%llx offset=0x%llx size=%lu val=0x%llx",
-                    (uint64_t)address, offset, (unsigned long)size, val);
-            }
-        }
-    }
-    return kr;
+// Swizzle CALayer setPath:
+static void (*orig_CAShapeLayer_setPath)(id, SEL, CGPathRef);
+static void hook_CAShapeLayer_setPath(id self, SEL _cmd, CGPathRef path) {
+    logToFile(@"[DRAW] CAShapeLayer.setPath called");
+    orig_CAShapeLayer_setPath(self, _cmd, path);
 }
 
-// Hook dlopen to catch eye.framework loading
-static void* (*orig_dlopen)(const char* path, int mode);
-static void* hook_dlopen(const char* path, int mode) {
-    void* handle = orig_dlopen(path, mode);
-    if (path && strstr(path, "PxExtFFi")) {
-        logToFile(@"[HOOK] dlopen: %s -> %p", path, handle);
-        // Find UnityFramework base now that app is running
-        unityBase = findUnityBase();
-        logToFile(@"[HOOK] UnityFramework base: 0x%llx", unityBase);
-        logToFile(@"[HOOK] Entity chain offsets: +0x1296D238, +0xB8, +0x2A4");
-        logToFile(@"[HOOK] Expected entity list addr: 0x%llx", 
-            unityBase ? unityBase + 0x1296D238 : 0);
-    }
-    if (path && strstr(path, "eye")) {
-        logToFile(@"[HOOK] dlopen: %s -> %p", path, handle);
-    }
-    return handle;
+// Swizzle UILabel setText:
+static void (*orig_UILabel_setText)(id, SEL, NSString*);
+static void hook_UILabel_setText(id self, SEL _cmd, NSString* text) {
+    logToFile(@"[DRAW] UILabel.setText: %@", text);
+    orig_UILabel_setText(self, _cmd, text);
 }
 
-// Hook objc_msgSend to catch drawing calls
-static id (*orig_objc_msgSend)(id self, SEL _cmd, ...);
-static id hook_objc_msgSend(id self, SEL _cmd, ...) {
-    const char* selName = sel_getName(_cmd);
-    
-    // Log ESP drawing calls
-    if (strstr(selName, "moveToPoint") || 
-        strstr(selName, "addLineToPoint") ||
-        strstr(selName, "closePath") ||
-        strstr(selName, "setPath") ||
-        strstr(selName, "setText") ||
-        strstr(selName, "setTextColor") ||
-        strstr(selName, "setFrame") ||
-        strstr(selName, "colorWithRed")) {
-        
-        logToFile(@"[DRAW] objc_msgSend: [%s %s]", 
-            class_getName([self class]), selName);
+// Swizzle UILabel setTextColor:
+static void (*orig_UILabel_setTextColor)(id, SEL, UIColor*);
+static void hook_UILabel_setTextColor(id self, SEL _cmd, UIColor* color) {
+    logToFile(@"[DRAW] UILabel.setTextColor called");
+    orig_UILabel_setTextColor(self, _cmd, color);
+}
+
+// Swizzle UIView setFrame:
+static void (*orig_UIView_setFrame)(id, SEL, CGRect);
+static void hook_UIView_setFrame(id self, SEL _cmd, CGRect frame) {
+    // Only log for ESP overlay views (small labels near top of screen)
+    if (frame.origin.y < 200 || frame.size.width < 100) {
+        logToFile(@"[DRAW] UIView.setFrame: (%.0f,%.0f,%.0f,%.0f)",
+            frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
     }
-    
-    return orig_objc_msgSend(self, _cmd);
+    orig_UIView_setFrame(self, _cmd, frame);
+}
+
+// Swizzle UIColor colorWithRed:green:blue:alpha:
+static id (*orig_colorWithRed)(id, SEL, CGFloat, CGFloat, CGFloat, CGFloat);
+static id hook_colorWithRed(id self, SEL _cmd, CGFloat r, CGFloat g, CGFloat b, CGFloat a) {
+    logToFile(@"[DRAW] UIColor.colorWithRed: %.2f %.2f %.2f %.2f", r, g, b, a);
+    return orig_colorWithRed(self, _cmd, r, g, b, a);
+}
+
+static void swizzleMethod(Class cls, SEL sel, IMP newImp, void** origImp) {
+    Method m = class_getInstanceMethod(cls, sel);
+    if (m) {
+        *origImp = method_getImplementation(m);
+        method_setImplementation(m, newImp);
+        logToFile(@"[SWIZZLE] %s.%s OK", class_getName(cls), sel_getName(sel));
+    } else {
+        logToFile(@"[SWIZZLE] %s.%s NOT FOUND", class_getName(cls), sel_getName(sel));
+    }
 }
 
 __attribute__((constructor))
 static void init(void) {
-    // Open log file
     logFile = fopen("/tmp/esp_dump.log", "w");
-    if (!logFile) {
-        logFile = fopen("/var/mobile/Documents/esp_dump.log", "w");
-    }
+    if (!logFile) logFile = fopen("/var/mobile/Documents/esp_dump.log", "w");
     
-    logToFile(@"=== AisiDump Tweak Loaded ===");
+    logToFile(@"=== AisiDump Tweak v1.0 Loaded ===");
     logToFile(@"[INIT] PID: %d", getpid());
     logToFile(@"[INIT] Bundle: %s", 
         [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown");
     
-    // Find UnityFramework
     unityBase = findUnityBase();
     logToFile(@"[INIT] UnityFramework base: 0x%llx", unityBase);
-    
-    // Hook dlopen
-    MSHookFunction((void*)dlopen, (void*)hook_dlopen, (void**)&orig_dlopen);
-    logToFile(@"[INIT] Hooked dlopen");
-    
-    // Hook mach_vm_read_overwrite
-    // It's in libsystem_kernel.dylib
-    void* sym = dlsym(RTLD_DEFAULT, "mach_vm_read_overwrite");
-    if (sym) {
-        MSHookFunction(sym, (void*)hook_mach_vm_read_overwrite, 
-                      (void**)&orig_mach_vm_read_overwrite);
-        logToFile(@"[INIT] Hooked mach_vm_read_overwrite at %p", sym);
-    } else {
-        logToFile(@"[INIT] ERROR: mach_vm_read_overwrite not found");
+    if (unityBase) {
+        logToFile(@"[INIT] Entity chain: +0x1296D238 -> +0xB8 -> +0x2A4");
+        logToFile(@"[INIT] Expected entity list addr: 0x%llx", unityBase + 0x1296D238);
     }
     
-    // Hook objc_msgSend
-    MSHookFunction((void*)objc_msgSend, (void*)hook_objc_msgSend, 
-                  (void**)&orig_objc_msgSend);
-    logToFile(@"[INIT] Hooked objc_msgSend");
+    // Log all loaded images
+    logToFile(@"[INIT] Loaded images:");
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        const char* name = _dyld_get_image_name(i);
+        if (name && (strstr(name, "PxExt") || strstr(name, "eye") || 
+                     strstr(name, "Unity") || strstr(name, "Framework"))) {
+            uint64_t base = (uint64_t)_dyld_get_image_header(i);
+            logToFile(@"  [%u] 0x%llx: %s", i, base, name);
+        }
+    }
     
-    logToFile(@"[INIT] Ready. Wait for ESP activation...");
+    // Swizzle drawing methods
+    @autoreleasepool {
+        swizzleMethod(objc_getClass("CAShapeLayer"), 
+            @selector(setPath:), (IMP)hook_CAShapeLayer_setPath, 
+            (void**)&orig_CAShapeLayer_setPath);
+        
+        swizzleMethod(objc_getClass("UILabel"), 
+            @selector(setText:), (IMP)hook_UILabel_setText, 
+            (void**)&orig_UILabel_setText);
+        
+        swizzleMethod(objc_getClass("UILabel"), 
+            @selector(setTextColor:), (IMP)hook_UILabel_setTextColor, 
+            (void**)&orig_UILabel_setTextColor);
+        
+        swizzleMethod(objc_getClass("UIView"), 
+            @selector(setFrame:), (IMP)hook_UIView_setFrame, 
+            (void**)&orig_UIView_setFrame);
+        
+        swizzleMethod(objc_getClass("UIColor"), 
+            @selector(colorWithRed:green:blue:alpha:), (IMP)hook_colorWithRed, 
+            (void**)&orig_colorWithRed);
+    }
+    
+    // Dump entity list pointer if UnityFramework is loaded
+    if (unityBase) {
+        uint64_t entityChainAddr = unityBase + 0x1296D238;
+        uint64_t val = 0;
+        mach_vm_size_t out;
+        kern_return_t kr = mach_vm_read_overwrite(
+            mach_task_self(), entityChainAddr, 8, (mach_vm_address_t)&val, &out);
+        logToFile(@"[DUMP] Read entity chain @0x%llx: kr=%d val=0x%llx", 
+            entityChainAddr, kr, val);
+        
+        if (val) {
+            // Read +0xB8
+            uint64_t mgrAddr = val + 0xB8;
+            uint64_t mgr = 0;
+            mach_vm_read_overwrite(mach_task_self(), mgrAddr, 8, (mach_vm_address_t)&mgr, &out);
+            logToFile(@"[DUMP] Read mgr @0x%llx: val=0x%llx", mgrAddr, mgr);
+            
+            if (mgr) {
+                uint64_t listAddr = mgr + 0x2A4;
+                uint64_t list = 0;
+                mach_vm_read_overwrite(mach_task_self(), listAddr, 8, (mach_vm_address_t)&list, &out);
+                logToFile(@"[DUMP] Read entity_list @0x%llx: val=0x%llx", listAddr, list);
+            }
+        }
+    }
+    
+    logToFile(@"[INIT] Ready. Use ESP now, then check /tmp/esp_dump.log");
 }

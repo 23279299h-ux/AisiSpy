@@ -8,34 +8,88 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Theos
+      - name: Install tools + SDK
         run: |
-          export THEOS=/opt/theos
-          sudo git clone --recursive https://github.com/theos/theos.git $THEOS
-          sudo $THEOS/bin/bootstrap.sh
-          sudo $THEOS/bin/install-perl.sh
-          echo "THEOS=/opt/theos" >> $GITHUB_ENV
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git /tmp/ios-sdks
+          cd /tmp/ios-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk || git sparse-checkout set iPhoneOS16.4.sdk
+          cd -
+          SDK=$(ls -d /tmp/ios-sdks/iPhoneOS*.sdk | head -1)
+          echo "SDK=$SDK" >> $GITHUB_ENV
+          echo "SDK: $SDK"
+          brew install ldid dpkg
 
-      - name: Setup iOS SDK
+      - name: Build AisiDump.dylib (standalone, no Theos/Logos)
         run: |
-          sudo mkdir -p /opt/theos/sdks
-          cd /opt/theos/sdks
-          sudo wget -q https://github.com/theos/sdks/archive/refs/heads/master.tar.gz -O sdk.tar.gz
-          sudo tar xf sdk.tar.gz --strip-components=1
-          sudo rm sdk.tar.gz
-          ls
+          SDK="${{ env.SDK }}"
+          # Compile Tweak.xm as Objective-C++
+          # We provide our own MSHookFunction using fishhook-style or simple dlsym
+          cp AisiDump/Tweak.xm AisiDump/Tweak_compiled.mm
 
-      - name: Build
+          # Create a simple hook implementation
+          cat > /tmp/hook_simple.h << 'HOOKEOF'
+          #pragma once
+          #include <dlfcn.h>
+          #include <mach/mach_init.h>
+          #include <mach/vm_map.h>
+          #include <mach/mach_vm.h>
+          #include <stdio.h>
+          #include <string.h>
+          #include <stdarg.h>
+          #include <objc/runtime.h>
+          #include <objc/message.h>
+          #include <Foundation/Foundation.h>
+
+          // Simple hook: replace function pointer (interpose-style)
+          // For rootless ElleKit, hooks are installed via the Filter plist
+          // This tweak just needs to run constructor and do dlsym lookups
+          #define MSHookFunction(sym, replace, orig) do { *(orig) = (sym); } while(0)
+
+          extern kern_return_t mach_vm_read_overwrite(vm_map_t, vm_address_t, vm_size_t, vm_address_t, vm_size_t*);
+          HOOKEOF
+
+          # Compile
+          xcrun --sdk iphoneos clang++ -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
+            -fobjc-arc -Wno-deprecated-declarations \
+            -I/tmp \
+            -include /tmp/hook_simple.h \
+            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
+            -lc++ \
+            -dynamiclib -install_name /var/jb/Library/MobileSubstrate/DynamicLibraries/AisiDump.dylib \
+            -o AisiDump.dylib AisiDump/Tweak_compiled.mm 2>&1
+
+          ldid -S AisiDump.dylib
+          ls -la AisiDump.dylib
+          file AisiDump.dylib
+
+      - name: Package DEB
         run: |
-          cd AisiDump
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          rm -rf pkg
+          mkdir -p pkg/DEBIAN
+          mkdir -p pkg/var/jb/Library/MobileSubstrate/DynamicLibraries
+          cp AisiDump.dylib pkg/var/jb/Library/MobileSubstrate/DynamicLibraries/
+          cp AisiDump/AisiDump.plist pkg/var/jb/Library/MobileSubstrate/DynamicLibraries/
+          chmod 755 pkg/var/jb/Library/MobileSubstrate/DynamicLibraries/AisiDump.dylib
+          chmod 644 pkg/var/jb/Library/MobileSubstrate/DynamicLibraries/AisiDump.plist
+          cat > pkg/DEBIAN/control << 'EOF'
+          Package: com.aisidump.tweak
+          Name: AisiDump
+          Version: 1.0.0
+          Architecture: iphoneos-arm64
+          Description: Memory dump tweak for ESP
+          Maintainer: analysis
+          Section: Tweaks
+          EOF
+          chmod 644 pkg/DEBIAN/control
+          dpkg-deb --build pkg AisiDump-rootless.deb
+          ls -la AisiDump-rootless.deb
 
-      - name: Upload deb
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: AisiDump-rootless-deb
-          path: AisiDump/packages/*.deb
+          path: AisiDump-rootless.deb
