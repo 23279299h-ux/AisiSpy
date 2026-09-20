@@ -27,13 +27,10 @@ jobs:
       - name: Build AisiDump.dylib
         run: |
           SDK="${{ env.SDK }}"
-          cp AisiDump/Tweak.xm AisiDump/Tweak_compiled.mm
-          xcrun --sdk iphoneos clang++ -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
-            -fobjc-arc -Wno-deprecated-declarations -Wno-incompatible-function-pointer-types \
-            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
-            -lc++ \
+          cp AisiDump/Tweak.xm AisiDump/Tweak_compiled.c
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 \
             -dynamiclib -install_name /var/jb/Library/MobileSubstrate/DynamicLibraries/AisiDump.dylib \
-            -o AisiDump.dylib AisiDump/Tweak_compiled.mm 2>&1
+            -o AisiDump.dylib AisiDump/Tweak_compiled.c 2>&1
           ldid -S AisiDump.dylib
           ls -la AisiDump.dylib
 
