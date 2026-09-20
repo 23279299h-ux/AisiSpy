@@ -1,0 +1,8 @@
+Package: com.aisidump.tweak
+Name: AisiDump
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Memory dump tweak for ESP analysis
+Maintainer: analysis
+Author: analysis
+Section: Tweaks
