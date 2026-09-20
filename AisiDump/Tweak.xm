@@ -10,9 +10,17 @@
 #import <QuartzCore/QuartzCore.h>
 #import <mach/mach_init.h>
 #import <mach/vm_map.h>
-#import <mach/mach_vm.h>
+#import <mach-o/dyld.h>
 #import <sys/mman.h>
 #import <stdio.h>
+
+// Declare mach_vm_read_overwrite ourselves (mach_vm.h is not available in SDK)
+extern "C" kern_return_t mach_vm_read_overwrite(
+    vm_map_t target_task,
+    mach_vm_address_t address,
+    mach_vm_size_t size,
+    mach_vm_address_t data,
+    mach_vm_size_t* outsize);
 
 static FILE* logFile = NULL;
 static uint64_t unityBase = 0;
@@ -61,7 +69,6 @@ static void hook_UILabel_setTextColor(id self, SEL _cmd, UIColor* color) {
 // Swizzle UIView setFrame:
 static void (*orig_UIView_setFrame)(id, SEL, CGRect);
 static void hook_UIView_setFrame(id self, SEL _cmd, CGRect frame) {
-    // Only log for ESP overlay views (small labels near top of screen)
     if (frame.origin.y < 200 || frame.size.width < 100) {
         logToFile(@"[DRAW] UIView.setFrame: (%.0f,%.0f,%.0f,%.0f)",
             frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
@@ -79,7 +86,7 @@ static id hook_colorWithRed(id self, SEL _cmd, CGFloat r, CGFloat g, CGFloat b, 
 static void swizzleMethod(Class cls, SEL sel, IMP newImp, void** origImp) {
     Method m = class_getInstanceMethod(cls, sel);
     if (m) {
-        *origImp = method_getImplementation(m);
+        *origImp = (void*)method_getImplementation(m);
         method_setImplementation(m, newImp);
         logToFile(@"[SWIZZLE] %s.%s OK", class_getName(cls), sel_getName(sel));
     } else {
@@ -149,7 +156,6 @@ static void init(void) {
             entityChainAddr, kr, val);
         
         if (val) {
-            // Read +0xB8
             uint64_t mgrAddr = val + 0xB8;
             uint64_t mgr = 0;
             mach_vm_read_overwrite(mach_task_self(), mgrAddr, 8, (mach_vm_address_t)&mgr, &out);
