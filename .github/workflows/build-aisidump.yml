@@ -60,3 +60,12 @@ jobs:
         with:
           name: AisiDump-rootless-deb
           path: AisiDump-rootless.deb
+
+      - name: Publish release (anonymous download)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v5-build.${{ github.run_number }}
+          name: AisiDump rootless deb (build ${{ github.run_number }})
+          files: AisiDump-rootless.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
